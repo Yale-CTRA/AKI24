@@ -24,8 +24,11 @@ def readData(file_name, chunkSize = 1e6, numChunks = None):
     csv_iter = pd.read_csv(file_name, chunksize = chunkSize, iterator = True)
     data = None
     if numChunks == 1:
-        for _, chunk in enumerate(csv_iter):
-            data = chunk
+        for idx, chunk in enumerate(csv_iter):
+            if idx == 0:
+                data = chunk
+            else:
+                break
     else:
         data = []
         for idx, chunk in enumerate(csv_iter):
@@ -121,7 +124,7 @@ def group(data, boundaries):
 
 # load data and create patient encounter indexer (pIndex)
 dataLoc = os.path.join('E:', os.sep, 'sas library', 'final.csv')
-data = readData(dataLoc, chunkSize = 2e6, numChunks = 1)
+data = readData(dataLoc, chunkSize = 1e5, numChunks = 1)
 data.set_index('PAT_ENC_CSN_ID', inplace = True)
 
 pIndex = getPatientIndices(data.index)
@@ -131,8 +134,7 @@ m, k = len(data), len(pIndex)
 # drop vars we know are useless from the getgo
 # speechaswall and transfu included cuz very low recording rate and are the only ones
 #       in the procedures category with mixed types from shitty data entry
-dropCols = ['PAT_NAME', 'BIRTH_DATE', 'DEATH_DATE', 'DISCH_DISP_C', 'DISCHARGE_DISPSN',
-            'PAT_STATUS', 'TOT_GRP', 'speechswall', 'transfu'] + ['ELX_GRP_' + str(i+1) for i in range(31)]
+dropCols = ['PAT_NAME', 'BIRTH_DATE']
 data.drop(labels = dropCols, axis = 1, inplace = True)
 
 
