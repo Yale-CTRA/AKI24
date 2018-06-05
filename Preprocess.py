@@ -12,7 +12,7 @@ root = os.path.normpath(os.path.join(os.path.dirname(os.path.realpath(__file__))
 sys.path.append(root)
 
 from Helper.clean import compress, keepNumerical, mixed2float
-from Helper.preprocessing import oneHot, convertISO8601
+from Helper.preprocessing import oneHot, convertISO8601, fixUrineVars
 
 
 def readData(file_name, chunkSize = 1e6, numChunks = None):
