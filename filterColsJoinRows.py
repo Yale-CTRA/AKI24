@@ -68,9 +68,65 @@ def group(data, boundaries):
         varGroups[key] = list(data.columns[sliceGroups[key]])
     return varGroups, sliceGroups
 
+
+def shiftIndices(m, startLoc, endLoc, insertLoc):
+    # m is length of data
+    segment = np.arange(startLoc, endLoc)
+    if insertLoc <= startLoc: # shift segment up
+        pre = np.arange(insertLoc)
+        middle = np.arange(insertLoc, startLoc)
+        post = np.arange(endLoc, m)
+        idx = np.concatenate([pre, segment, middle, post])
+    else: # shift segment down
+        pre = np.arange(startLoc)
+        middle = np.arange(endLoc, insertLoc)
+        post = np.arange(insertLoc, m)
+        idx = np.concatenate([pre, middle, segment, post])
+    return idx
+
+def getDuplicates(IDs):
+    seenIDs = [IDs[0]]
+    duplicateIDs = []
+    current = IDs[0]
+    for i in tqdm(range(1,len(data))):
+        d = IDs[i]
+        if current != d:
+            current = d
+            if not (d in seenIDs):
+                seenIDs.append(d)
+            else:
+                duplicateIDs.append(d)
+    return duplicateIDs
+
+getIntIndex = lambda col, val: np.arange(len(col))[col==val]
+
+def reorderByEncounter(data, name):
+    m = len(data)
+    newOrder = np.arange(m)
+    IDs = copy(data[name].values)
+    
+    duplicateIDs = getDuplicates(IDs)
+    print('\n', len(duplicateIDs), ' encounters split')
+    
+    # keep doing passes until everything is fixed
+    while len(duplicateIDs) > 0:
+        for i, ID in tqdm(enumerate(duplicateIDs)):
+            intLocs = getIntIndex(IDs, ID)
+            trans = np.where((intLocs[1:] - intLocs[:-1]) != 1)[0]
+            if len(trans) > 0: # check must be done since previous iters might fix later ones
+                trans = trans[0]
+                idx = shiftIndices(data, intLocs[trans+1], intLocs[-1]+1, intLocs[trans]+1)
+                IDs = IDs[idx]
+                newOrder = newOrder[idx]
+        duplicateIDs = getDuplicates(IDs)
+     
+    return data.iloc[newOrder,:]
+
 ##############################################################################################
 ## read in only very first section of data to do column organization and var deletion
 data = pd.read_csv(os.path.join('G:', os.sep, 'EHR_preprocessed', 'final_part0.csv'))
+data = reorderByEncounter(data, 'PAT_ENC_CSN_ID')
+
 pIndex = getPatientIndices(data['PAT_ENC_CSN_ID'].values)
 m, k = len(data), len(pIndex)
 
@@ -247,60 +303,24 @@ remove = np.all(remove, axis = 1)
 data = data.loc[~remove,:]
 print('Removed all rows without new info recorded')
 
-dataloc = os.path.join(os.path.expanduser('~'), 'Documents', 'Projects', 'AKI24', 'Data', 'tmp.h5')
+dataloc = os.path.join(os.path.expanduser('~'), 'Documents', 'Projects', 'AKI24', 'Data', 'Data.h5')
 data.to_hdf(dataloc, 'data')
 save(obj = varGroups, loc = varGroupsfolder, name = 'varGroups')
 
 
+
+#####################################################################################################
 #data = pd.read_hdf(loc, 'data')
 #load(loc = varGroupsfolder, name = 'varGroups')
 
 ## resort all data such that patient encounters are properly placed together
-def shiftDF(data, startLoc, endLoc, insertLoc):
-    # functions shifts a segment of the data
-    segment = data.iloc[startLoc:endLoc,:]
-    length = len(segment)
-#    segment.set_index(np.arange(length), inplace = True)
-    if insertLoc <= startLoc:
-        pre = data.iloc[:insertLoc,:]
-        middle = data.iloc[insertLoc:startLoc,:]
-        post = data.iloc[endLoc:,:]
-        data = pd.concat([pre, segment, middle, post], axis = 0, copy = False)
-#        data.iloc[insertLoc+length:endLoc,:] = data.iloc[insertLoc:startLoc,:]
-#        data.iloc[insertLoc:insertLoc+length,:] = segment.values
-    else:
-        print('ERROR BITCH')
-        data.iloc[startLoc:insertLoc,:] = data.iloc[endLoc:insertLoc+length,:]
-        data.iloc[insertLoc:insertLoc+length,:] = segment.values
-    return data
-
-def getDuplicates(IDs):
-    seenIDs = [IDs[0]]
-    duplicateIDs = []
-    current = IDs[0]
-    for i in tqdm(range(1,len(data))):
-        d = IDs[i]
-        if current != d:
-            current = d
-            if not (d in seenIDs):
-                seenIDs.append(d)
-            else:
-                duplicateIDs.append(d)
-    return duplicateIDs
-
-getIntIndex = lambda col, val: np.arange(len(col))[col==val]
-
-duplicateIDs = getDuplicates(data['PAT_ENC_CSN_ID'].values)
-for i, ID in tqdm(enumerate(duplicateIDs)):
-    intLocs = getIntIndex(data['PAT_ENC_CSN_ID'].values, ID)
-    trans = np.where((intLocs[1:] - intLocs[:-1]) != 1)[0][0]
-    data = shiftDF(data, intLocs[trans+1], intLocs[-1]+1, intLocs[trans]+1)
-
+data = reorderByEncounter(data, 'PAT_ENC_CSN_ID')
 pIndex = getPatientIndices(data['PAT_ENC_CSN_ID'].values)
 m, k = len(data), len(pIndex)
 
 data.to_hdf(dataloc, 'data')
 
+##############################################################################################
 #data = pd.read_hdf(loc, 'data')
 #varGroups = load(loc = varGroupsfolder, name = 'varGroups')
 
@@ -343,15 +363,32 @@ data[varGroups['loc']] = newLocCols
 cols = varGroups['med'] + varGroups['pro']
 data[cols] = data[cols].values.astype(np.bool)
 
+dataloc = os.path.join(os.path.expanduser('~'), 'Documents', 'Projects', 'AKI24', 'Data', 'Data.h5')
 save(obj = varGroups, loc = varGroupsfolder, name = 'varGroups')
 data.to_hdf(dataloc, 'data')
 
 ###################################################################################################
+dataloc = os.path.join(os.path.expanduser('~'), 'Documents', 'Projects', 'AKI24', 'Data', 'Data.h5')
+data = pd.read_hdf(dataloc, 'data')
+varGroupsfolder = os.path.join(os.path.expanduser('~'), 'Documents', 'Projects', 'AKI24', 'Data')
+varGroups = load(loc = varGroupsfolder, name = 'varGroups')
+pIndex = getPatientIndices(data['PAT_ENC_CSN_ID'].values)
+k = len(pIndex)
 
 # Formatting times:
 #     1. Convert times from EPIC/SAS format to np.datetime64 arrays
 #     2. Correct sorting for chronological order within each encounter (there are randos missorted)
 #     3. Convert time to hours passed from first timestamp with respect to each encounter (los)
+
+## check encounter id 92971224, 97713018, 95096582, 97175134, 95672277 for some examples
+## first time recorded is very off - like 13 years off
+## all have 00:00:00 for time of day in first record
+## i = 4685 for first id
+## proposed solution: none of these people have a location recorded during these times, so
+## delete all starting rows w/o a location
+
+select = np.zeros(len(data), dtype = np.bool)
+
 
 time = copy(data['time'].values).astype(np.unicode)
 timeFunc = np.vectorize(lambda x: x.replace(' ', 'T')[:-3])
@@ -365,7 +402,7 @@ for i in tqdm(range(k)):
     indices = np.argsort(time[pIndex[i,0]:pIndex[i,1]]) + start
     newIndex[start:stop] = indices
     
-data['time'] = time
+time = time[newIndex]
 data = data.iloc[newIndex,:]
 
 # convert times to hours
@@ -376,8 +413,11 @@ for i in tqdm(range(k)):
     timeZero = time[start]
     for j in range(1,length):
         newTime[start+j] = (time[start+j] - timeZero)/np.timedelta64(1, 'h')
+        if newTime[start+j] > 50000:
+            raise ValueError
     
 # set new time var (length of stay in hours)
+data['time'] = time
 data.insert(loc = data.columns.get_loc('time'), column = 'los', value = newTime)
 varGroups['inf'] = varGroups['inf'] + ['los']
 save(obj = varGroups, loc = varGroupsfolder, name = 'varGroups')
@@ -404,6 +444,14 @@ data.to_hdf(dataloc, 'data')
 #     small margin of time is added to windows for discrepencies in daily measurement times
 #     NaNs will be present when there is no information to go on
 
+
+## load data if necessary
+dataloc = os.path.join(os.path.expanduser('~'), 'Documents', 'Projects', 'AKI24', 'Data', 'Data.h5')
+data = pd.read_hdf(dataloc, 'data')
+varGroupsfolder = os.path.join(os.path.expanduser('~'), 'Documents', 'Projects', 'AKI24', 'Data')
+varGroups = load(loc = varGroupsfolder, name = 'varGroups')
+pIndex = getPatientIndices(data['PAT_ENC_CSN_ID'].values)
+m, k = len(data), len(pIndex)
 
 # finding min creats
 print('Finding minimum recorded creatinine in past 2 and 7 days')
@@ -475,15 +523,18 @@ save(obj = varGroups, loc = varGroupsfolder, name = 'varGroups2')
 
 
 
-# create targets (4 cols for each outcome group (3) corresponding to 6, 12, 24, and 28 hrs)
+# create targets (4 cols for each outcome group (3) corresponding to 6, 12, 24, and 48 hrs)
 # example: segmented and overlap would correspond to windows of [6-12] and [0-12] hrs, respectively
 outcomes_names = ['AKI1', 'AKI2', 'creatinine']
 outcomes_overlap = [np.empty((m,4), dtype = np.float16) for i in range(3)]
 outcomes_segment = [np.empty((m,4), dtype = np.float16) for i in range(3)]
+timeTillAKI = np.empty((m,2), dtype = np.float16)
+timeTillAKI.fill(np.nan)
 for i in range(3):
     outcomes_overlap[i].fill(np.nan)
     outcomes_segment[i].fill(np.nan)
 
+# create normal outcomes
 margin = 0.5
 hourListPre = [6, 12, 24, 48]
 hourList = [hourListPre[i] + margin*(hourListPre[i]/hourListPre[0]) for i in range(4)]
@@ -506,8 +557,21 @@ for i in tqdm(range(k)):
                 outcomes_segment[0][start+j,h] = np.any(encounter.loc[ind_segment, outcomes_names[0]])
                 outcomes_segment[1][start+j,h] = np.any(encounter.loc[ind_segment, outcomes_names[1]])
                 outcomes_segment[2][start+j,h] = np.max(encounter.loc[ind_segment, outcomes_names[2]])
-    
 
+# create time till AKI outcomes
+for i in tqdm(range(k)):
+    start, stop, length = pIndex[i,:]
+    encounter = data.iloc[start:stop,:]
+    timesCurrent = encounter['los'].values
+    AKIbool = encounter[['AKI1', 'AKI2']].values == 1
+    if np.any(AKIbool[:,0]):
+        idx0 = np.where(AKIbool[:,0])[0][0]
+        timeTillAKI[start:stop,0] = timesCurrent[idx0] - timesCurrent
+    if np.any(AKIbool[:,1]):
+        idx1 = np.where(AKIbool[:,1])[0][0]
+        timeTillAKI[start:stop,1] = timesCurrent[idx1] - timesCurrent
+    
+    
 
 # merge targets to full dataset
 varGroups['fut'] = []
@@ -517,7 +581,11 @@ for i, hour in enumerate(hourListPre):
         data[string + 'overlap'] = outcomes_overlap[j][:,i]
         data[string + 'segment'] = outcomes_segment[j][:,i]
         varGroups['fut'] = varGroups['fut'] + [string + 'overlap', string + 'segment']
-        
+
+data['timeTillAKI1'] = timeTillAKI[:,0]
+data['timeTillAKI2'] = timeTillAKI[:,1]
+
+varGroups['fut'] += ['timeTillAKI1', 'timeTillAKI2']
 
 # add two more vars: creat percent and first recorded creat
 data.insert(loc = data.columns.get_loc('creatinine'), column = 'creatPercent',

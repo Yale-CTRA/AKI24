@@ -23,7 +23,7 @@ from Helper.utilities import saveUnique, save, load, searchColumns
 ###################################################################################################
 
 # load data and create patient encounter indexer (pIndex)
-dataLoc = os.path.join('G:', os.sep, 'sas library', 'anotherfinal.csv')
+dataLoc = os.path.join('G:', os.sep, 'sas library', 'final.csv')
 #data = readData(dataLoc, chunkSize = 2e6, numChunks = 1)
 csv_iter = pd.read_csv(dataLoc, chunksize = 9e6, iterator = True)
 #data = pd.read_csv(dataLoc, nrows = 1e4)
